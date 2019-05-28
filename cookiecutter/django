@@ -1,0 +1,58 @@
+# Dockerfile
+
+FROM python:2.7-alpine
+MAINTAINER itswcg
+
+ENV CONFIG dev
+ENV DJANGO_SETTINGS_MODULE django.settings.${CONFIG}
+ENV PYTHONUNBUFFERED 1
+
+RUN apk update \
+    && apk --no-cache add --virtual .build-deps build-base bash gcc python2-dev musl-dev linux-headers libc-dev \
+    # Pillow dependencies
+    && apk add jpeg-dev zlib-dev freetype-dev lcms2-dev openjpeg-dev tiff-dev tk-dev tcl-dev \
+    # CFFI dependencies
+    && apk add libffi-dev py-cffi \
+    # lxml
+    && apk add libxslt-dev \
+    # mysql
+    && apk add py-mysqldb mariadb-dev \
+    && sed '/st_mysql_options options;/a unsigned int reconnect;' /usr/include/mysql/mysql.h -i.bkp
+
+COPY ./requirements /django/requirements
+WORKDIR /django
+
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements/${CONFIG}.txt
+
+# docker-compose.yml
+version: '3'
+
+services:
+  django: &django
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: django_web
+    volumes:
+      - .:/django
+    ports:
+      - "8510:8510"
+    command: gunicorn -w 2 django.wsgi -b 0.0.0.0:8510
+
+  celerybeat:
+    <<: *django
+    image: django_celerybeat
+    ports: []
+    command: celery beat -A django --schedule=log/celery/celerybeat-schedule --pidfile=log/celery/celerybeat.pid -l INFO --logfile=log/celery/celerybeat.log
+
+  celerywork_default:
+    <<: *django
+    image: django_celerywork_default
+    ports: []
+    command: celery worker -A django -E -c 2 -l INFO --logfile=log/celery/celery_worker_default.log -Q django.celery.default -n worker_default@django
+
+  celerywork_urgent:
+    <<: *django
+    image: django_celerywork_urgent
+    ports: []
+    command: celery worker -A django -E -c 2 -l INFO --logfile=log/celery/celery_worker_urgent.log -Q django.celery.important,django.celery.urgent -n worker_urgent@django
