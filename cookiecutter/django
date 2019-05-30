@@ -3,8 +3,8 @@
 FROM python:2.7-alpine
 MAINTAINER itswcg
 
-ENV CONFIG dev
-ENV DJANGO_SETTINGS_MODULE django.settings.${CONFIG}
+ARG DJANGO_CONFIG
+ENV DJANGO_SETTINGS_MODULE django.settings.${DJANGO_CONFIG}
 ENV PYTHONUNBUFFERED 1
 
 RUN apk update \
@@ -22,7 +22,8 @@ RUN apk update \
 COPY ./requirements /django/requirements
 WORKDIR /django
 
-RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements/${CONFIG}.txt
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements/${DJANGO_CONFIG}.txt
+
 
 # docker-compose.yml
 version: '3'
@@ -32,6 +33,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        DJANGO_CONFIG: ${DJANGO_CONFIG}
     image: django_web
     volumes:
       - .:/django
@@ -49,10 +52,16 @@ services:
     <<: *django
     image: django_celerywork_default
     ports: []
-    command: celery worker -A django -E -c 2 -l INFO --logfile=log/celery/celery_worker_default.log -Q django.celery.default -n worker_default@django
+    command: celery worker -A django -E -c 2 -l INFO --logfile=log/celery/celery_worker_default.log -Q django.celery.default -n worker_default@django-${DJANGO_CONFIG}
 
   celerywork_urgent:
     <<: *django
     image: django_celerywork_urgent
     ports: []
-    command: celery worker -A django -E -c 2 -l INFO --logfile=log/celery/celery_worker_urgent.log -Q django.celery.important,django.celery.urgent -n worker_urgent@django
+    command: celery worker -A django -E -c 2 -l INFO --logfile=log/celery/celery_worker_urgent.log -Q django.celery.important,django.celery.urgent -n worker_urgent@django-${DJANGO_CONFIG}
+
+
+# Usage
+$ export DJANGO_CONFIG=dev
+$ docker-compose build
+$ docker-compose up
